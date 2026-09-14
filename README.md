@@ -1,16 +1,35 @@
 # Kimaier
----
 
-Simple desktop time tracking tool that uses [kimai](https://www.kimai.org/de/).
+Kimaier is a small native Kimai time tracker. Its interface is built with
+[Slint](https://slint.dev/); the application logic, HTTP client, and local
+configuration are Rust. It builds for Windows, macOS, and Linux without a
+WebView, Node.js, or a JavaScript runtime.
 
-It is assumed that the projects and activities do not change often.
+## Run it
 
-**For working hours calculation it uses german holiday!**
+```sh
+cd src-tauri
+cargo run
+```
 
-![start](/docs/start.png) | ![pause](/docs/pause.png) | ![stats](/docs/stats.png) | ![settings](/docs/settings.png)
+On first launch, enter the Kimai API URL and token, the project and activity
+names, weekly hours, start date, and working days. Kimaier validates the
+project/activity pair with Kimai before storing the settings in the operating
+system's application configuration directory.
 
----
+On Linux, the first run also reads the former Tauri store at
+`~/.local/share/kimaier/kimaier.dat` when no Slint settings file exists. Saving
+the settings writes them to the new native configuration location.
 
-Control icons are from [fontawesome](https://fontawesome.com) which are license under [creativecommons v4.0](https://creativecommons.org/licenses/by/4.0/)
+## Development and release builds
 
-**When screen in dev mode is blank run it with: `WEBKIT_DISABLE_COMPOSITING_MODE=1 npm run tauri dev`
+```sh
+cd src-tauri
+cargo check
+cargo run --release
+```
+
+The native Slint layer contains no desktop-only business logic. Platform
+integration is isolated from the Kimai client and settings model, so an iOS
+frontend can reuse the same Rust core later. Desktop builds currently target
+Windows, macOS, and Linux.
