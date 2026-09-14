@@ -1,5 +1,20 @@
-target/
-.vscode/*
-!.vscode/extensions.json
+# Flutter and Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+**/Flutter/ephemeral/
+**/flutter/ephemeral/
+.pub-cache/
+.pub/
+.fvm/flutter_sdk
+doc/api/
+**/ios/Flutter/.last_build_id
+
+# Editors and operating systems
+*.iml
+.vscode/
 .idea
 .DS_Store
