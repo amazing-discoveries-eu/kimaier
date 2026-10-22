@@ -10,6 +10,8 @@ permissions:
 
 jobs:
     release:
+        # For manual runs, select an existing v* tag in the GitHub UI.
+        if: startsWith(github.ref, 'refs/tags/v')
         strategy:
             fail-fast: false
             matrix:
@@ -23,8 +25,6 @@ jobs:
                     - platform: 'windows-latest'
                       args: ''
         runs-on: ${{ matrix.platform }}
-        env:
-            TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v6
@@ -41,7 +41,7 @@ jobs:
                                   "labels": []
                               }
                           ],
-                          "template": "#{{CHANGELOG}}\n\nUncategorized:\n#{{UNCATEGORIZED}}\n\nIgnored:\n#{{IGNORED}}\n\n#{{UNCATEGORIZED_COUNT}}\n#{{IGNORED_COUNT}}",
+                          "template": "#{{CHANGELOG}}\n\nUncategorized:\n#{{UNCATEGORIZED}}\n\nIgnored:\n#{{IGNORED}}\n\n#{{UNCATEGORIZED_COUNT}}\n#{{IGNORED_COUNT}}"
                       }
 
             - name: Install dependencies (ubuntu only)
@@ -52,6 +52,8 @@ jobs:
 
             - name: Rust setup
               uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
             - name: Rust cache
               uses: swatinem/rust-cache@v2
@@ -64,16 +66,42 @@ jobs:
                   node-version: 24
                   cache: 'npm'
 
-            - name: Install app dependencies and build web
-              run: npm i && npm run build
+            - name: Install app dependencies
+              run: npm ci
+
+            - name: Prepare Apple API key
+              if: runner.os == 'macOS'
+              shell: bash
+              env:
+                  APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+                  APPLE_API_ISSUER: ${{ vars.APPLE_ISSUER_ID }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$APPLE_API_PRIVATE_KEY" || -z "$APPLE_API_KEY" || -z "$APPLE_API_ISSUER" ]]; then
+                      echo "::error::Missing APPLE_API_PRIVATE_KEY, APPLE_API_KEY_ID or APPLE_ISSUER_ID."
+                      exit 1
+                  fi
+                  key_path="$RUNNER_TEMP/kimaier-apple-api-key.p8"
+                  umask 077
+                  printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_path"
+                  echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
             - name: Build the app
-              uses: tauri-apps/tauri-action@dev
+              uses: tauri-apps/tauri-action@v1
 
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+                  APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+                  APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+                  APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY_ID || '' }}
+                  APPLE_API_ISSUER: ${{ runner.os == 'macOS' && vars.APPLE_ISSUER_ID || '' }}
 
               with:
+                  args: ${{ matrix.args }}
                   tagName: ${{ github.ref_name }} # This only works if your workflow triggers on new tags.
                   releaseName: 'Kimaier v__VERSION__' # tauri-action replaces \_\_VERSION\_\_ with the app version.
                   releaseBody: |
@@ -82,3 +110,8 @@ jobs:
                       See the assets to download this version.
                   releaseDraft: true
                   prerelease: false
+
+            - name: Remove Apple API key
+              if: always() && runner.os == 'macOS'
+              shell: bash
+              run: rm -f "$RUNNER_TEMP/kimaier-apple-api-key.p8"

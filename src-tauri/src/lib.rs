@@ -4,9 +4,9 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 use tauri::{
+    PhysicalPosition, PhysicalSize, WindowEvent, Wry,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    PhysicalPosition, PhysicalSize, WindowEvent, Wry,
 };
 use tauri_plugin_window_state::StateFlags;
 
@@ -91,12 +91,8 @@ pub fn run() -> tauri::Result<()> {
                         println!("menu item {:?} not handled", event.id);
                     }
                 })
-                .on_tray_icon_event(move |_, event| match event {
-                    TrayIconEvent::DoubleClick {
-                        position: _,
-                        rect: _,
-                        ..
-                    } => {
+                .on_tray_icon_event(move |_, event| {
+                    if let TrayIconEvent::DoubleClick { .. } = event {
                         let app_state = window_clone2.state::<AppState>();
                         let hide_menu_item = app_state.hide_menu_item.lock().unwrap();
 
@@ -119,8 +115,6 @@ pub fn run() -> tauri::Result<()> {
                             window_clone2.set_position(position).unwrap();
                         }
                     }
-
-                    _ => {}
                 })
                 .build(app)?;
 

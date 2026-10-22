@@ -2,7 +2,7 @@
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "kimaier",
     "mainBinaryName": "kimaier",
-    "version": "0.11.2",
+    "version": "0.12.0",
     "identifier": "kimaier",
     "build": {
         "beforeDevCommand": "npm run dev",
