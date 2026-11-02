@@ -23,6 +23,7 @@ serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 
 [features]
 # by default Tauri runs in production mode

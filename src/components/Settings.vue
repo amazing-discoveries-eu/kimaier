@@ -4,12 +4,28 @@ import { getVersion } from '@tauri-apps/api/app'
 
 import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
+import { getHistoricalSeconds } from '../services/timesheets'
 
 const { allActivities, authHeader, currentPage, page, user } = storeToRefs(useMainStore())
 const mainStore = useMainStore()
 
 const appVersion = ref()
 const saveMsg = ref('')
+const rebuildingCache = ref(false)
+const cacheMessage = ref('')
+
+async function rebuildHistory() {
+    rebuildingCache.value = true
+    cacheMessage.value = ''
+    try {
+        await getHistoricalSeconds({ ...user.value }, undefined, true)
+        cacheMessage.value = 'History updated successfully.'
+    } catch (error) {
+        cacheMessage.value = error instanceof Error ? error.message : String(error)
+    } finally {
+        rebuildingCache.value = false
+    }
+}
 
 const days = ref([
     { name: 'Mo', active: false },
@@ -82,7 +98,10 @@ onMounted(async () => {
                 <input v-model="user.project" placeholder="Project" required />
                 <input v-model="user.activity" placeholder="Activity" required />
                 <input v-model="user.week_hours" placeholder="Hours per Week" type="number" tep="0.1" required />
-                <input v-model="user.work_start" type="date" required />
+                <label for="work-start">Work start</label>
+                <input id="work-start" v-model="user.work_start" type="date" required />
+                <label for="count-from">Count from (optional)</label>
+                <input id="count-from" v-model="user.count_from" type="date" />
 
                 <div class="day-group">
                     <button
@@ -98,10 +117,18 @@ onMounted(async () => {
                 </div>
 
                 <div class="btn-group">
-                    <button type="reset">Cancel</button>
-                    <button type="submit">Save</button>
+                    <button type="reset" :disabled="rebuildingCache">Cancel</button>
+                    <button type="submit" :disabled="rebuildingCache">Save</button>
                 </div>
             </form>
+
+            <button
+                class="rebuild-cache"
+                :disabled="rebuildingCache || !user.api_url || !user.api_token || !user.work_start"
+                @click="rebuildHistory"
+            >{{ rebuildingCache ? 'Updating history…' : 'Reload history' }}</button>
+            <p>Reload past months after editing or deleting older timesheets in Kimai.</p>
+            <p v-if="cacheMessage" role="status">{{ cacheMessage }}</p>
 
             <p>Kimaier v{{ appVersion }}</p>
         </div>
@@ -110,6 +137,12 @@ onMounted(async () => {
     </div>
 </template>
 <style scoped>
+label {
+    display: block;
+    margin-top: 0.5em;
+    font-size: 12px;
+}
+
 .card p {
     font-size: 12px;
 }
@@ -170,6 +203,10 @@ input::-webkit-inner-spin-button {
 .day-group > .day-btn:last-child {
     border-top-right-radius: 4px;
     border-bottom-right-radius: 4px;
+}
+
+.rebuild-cache {
+    width: auto;
 }
 
 .btn-group {

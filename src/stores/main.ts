@@ -28,6 +28,7 @@ interface User {
     activity_id: number
     state: string
     work_days: string[]
+    count_from: string
     work_start: string
 }
 
@@ -46,6 +47,7 @@ export const useMainStore = defineStore('main', {
             state: '',
             work_days: [],
             work_start: '',
+            count_from: '',
         } as User,
         allActivities: [] as any[],
         authHeader: {} as Header,

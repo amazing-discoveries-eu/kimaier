@@ -1,20 +1,18 @@
 <script setup lang="ts">
 import dayjs from 'dayjs'
 import timezone from 'dayjs/plugin/timezone.js'
-import customParseFormat from 'dayjs/plugin/customParseFormat'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
 import Footer from './Footer.vue'
 import helper from '../helpers/helper'
+import { calculationStart, getActivities, getHistoricalSeconds } from '../services/timesheets'
 
 dayjs.Ls.en.weekStart = 1
 dayjs.extend(timezone)
-dayjs.extend(customParseFormat)
 
 const {
     user,
-    authHeader,
     timeToday,
     timeMonth,
     timeWeek,
@@ -26,64 +24,25 @@ const {
     weekActivities,
 } = storeToRefs(useMainStore())
 const statisticsTimeout = ref()
-const yearBegin = ref()
-const yearEnd = ref()
+const historyEnd = ref()
 const workStart = ref()
 const totalWorkSeconds = ref(0)
 const totalTargetSeconds = ref(0)
 const totalTargetToday = ref(0)
-let yearTargetToday = 0
+let targetThroughToday = 0
 
-async function getActivities(begin: string, end: string | null): Promise<any[]> {
-    const list: any[] = []
-    const pageSize = 500
-    const params = new URLSearchParams({ begin, size: String(pageSize), order: 'ASC' })
-
-    if (end) {
-        params.set('end', end)
-    }
-
-    try {
-        for (let page = 1; ; page++) {
-            params.set('page', String(page))
-            const response = await fetch(`${user.value.api_url}/api/timesheets?${params}`, {
-                method: 'GET',
-                headers: new Headers({ 'Content-Type': 'application/json', ...authHeader.value }),
-            })
-
-            // Without pagination headers, Kimai may return 404 after the last full page.
-            if (page > 1 && response.status === 404) {
-                break
-            }
-
-            if (!response.ok) {
-                throw new Error(`Failed to load timesheets: ${response.status}`)
-            }
-
-            const data = await response.json()
-            if (!Array.isArray(data)) {
-                throw new Error('Invalid timesheets response')
-            }
-
-            list.push(...data)
-
-            const totalPages = Number(response.headers.get('X-Total-Pages'))
-            if (totalPages > 0 ? page >= totalPages : data.length < pageSize) {
-                break
-            }
-        }
-    } catch {
-        return []
-    }
-
-    return list
-}
+const statisticsError = ref('')
+const statisticsReady = ref(false)
+let disposed = false
 
 function monthStartDay(date: any): number {
     /*
         day of month from which the target hours should be counted,
         prorating the month the user actually started working in
     */
+    if (workStart.value && date.isBefore(workStart.value, 'month')) {
+        return date.daysInMonth() + 1
+    }
     if (workStart.value && date.isSame(workStart.value, 'month')) {
         return workStart.value.date()
     }
@@ -129,8 +88,8 @@ async function getTotalHours(date: any, fromDay: number = 1): Promise<number> {
 function getWeekActivities(activities: any[]) {
     let activitiesList = []
 
-    for (const act of activities.reverse()) {
-        const begin = dayjs(act.begin, 'YYYY-MM-DD')
+    for (const act of activities) {
+        const begin = dayjs(act.begin)
 
         if (dayjs().isSame(begin, 'week')) {
             activitiesList.push(act)
@@ -147,12 +106,11 @@ function setTimer(time: any, activities: any[]): number {
 
     let timeDiff = 0
 
-    for (const act of activities.reverse()) {
-        const begin = dayjs(act.begin, 'YYYY-MM-DDTHH:mm:ss+000ZZ')
+    for (const act of activities) {
+        const begin = dayjs(act.begin)
 
         if (act.end) {
-            const end = dayjs(act.end, 'YYYY-MM-DDTHH:mm:ss+000ZZ')
-            timeDiff += end.diff(begin, 'second')
+            timeDiff += act.duration
         } else {
             timeDiff += time.diff(begin, 'second')
         }
@@ -161,94 +119,70 @@ function setTimer(time: any, activities: any[]): number {
     return timeDiff
 }
 
-async function getYearActivities() {
-    let activities = await getActivities(
-        yearBegin.value.format('YYYY-MM-DDTHH:mm:ss'),
-        yearEnd.value.format('YYYY-MM-DDTHH:mm:ss'),
-    )
-    let month = '2023-00'
-
-    for (const activity of activities) {
-        const d = dayjs(activity.begin).format('YYYY-MM')
-        if (d !== month) {
-            month = d
-        }
-        totalWorkSeconds.value += activity.duration
-    }
-}
-
 async function refreshTargets() {
     /*
         (re-)compute target/overtime base values for the current day;
         must be re-run whenever the day (and therefore possibly the month) changes
     */
     const time = dayjs()
-    yearBegin.value = dayjs(time.format('YYYY-01-01T00:00:00'))
-    yearEnd.value = dayjs(time.format('YYYY-MM-01T00:00:00'))
-    workStart.value = dayjs(`${user.value.work_start}T00:00:00`)
-
-    if (workStart.value.isAfter(yearBegin.value)) {
-        yearBegin.value = workStart.value
-    }
+    historyEnd.value = dayjs(time.format('YYYY-MM-01T00:00:00'))
+    workStart.value = dayjs(`${calculationStart(user.value)}T00:00:00`)
 
     totalWorkSeconds.value = 0
     totalTargetSeconds.value = 0
     totalTargetToday.value = 0
 
     targetHours.value = await getTotalHours(time, monthStartDay(time))
-    await getYearActivities()
+    totalWorkSeconds.value = await getHistoricalSeconds({ ...user.value }, time)
 
-    let startDate = yearBegin.value.startOf('month')
+    let startDate = workStart.value.startOf('month')
 
-    while (yearEnd.value.isAfter(startDate)) {
+    while (historyEnd.value.isAfter(startDate)) {
         totalTargetSeconds.value += (await getTotalHours(startDate, monthStartDay(startDate))) * 3600
         startDate = startDate.add(1, 'month')
     }
 
-    yearTargetToday = totalTargetSeconds.value + totalTargetToday.value * 3600
+    targetThroughToday = totalTargetSeconds.value + totalTargetToday.value * 3600
 }
 
+let currentDate = ''
+let lastFetch = 0
+
 async function status() {
-    let time = dayjs()
-    let todayBegin = time.format('YYYY-MM-DDT00:00:00')
-    let todayEnd = time.format('YYYY-MM-DDT23:59:59')
-    let month = time.format('YYYY-MM-01T00:00:00')
-    let currentDate = time.format('YYYY-MM-DD')
-
-    todaysActivities.value = await getActivities(todayBegin, todayEnd)
-    monthActivities.value = await getActivities(month, todayEnd)
-    weekActivities.value = getWeekActivities(monthActivities.value)
-    await refreshTargets()
-
-    async function setStatus(resolve: any) {
-        /*
-            recursive function as a endless loop
-        */
-        time = dayjs()
-        const todaysDate = time.format('YYYY-MM-DD')
-        todayBegin = time.format('YYYY-MM-DDT00:00:00')
-        todayEnd = time.format('YYYY-MM-DDT23:59:59')
-        month = time.format('YYYY-MM-01T00:00:00')
+    try {
+        const time = dayjs()
+        const date = time.format('YYYY-MM-DD')
+        if (date !== currentDate || Date.now() - lastFetch >= 60_000) {
+            const connection = { ...user.value }
+            const end = time.format('YYYY-MM-DDT23:59:59')
+            const [today, month] = await Promise.all([
+                getActivities(connection, time.format('YYYY-MM-DDT00:00:00'), end),
+                getActivities(connection, time.format('YYYY-MM-01T00:00:00'), end),
+            ])
+            if (disposed) return
+            if (date !== currentDate) await refreshTargets()
+            if (disposed) return
+            todaysActivities.value = today
+            monthActivities.value = month
+            weekActivities.value = getWeekActivities([...month])
+            currentDate = date
+            lastFetch = Date.now()
+        }
         timeToday.value = setTimer(time, todaysActivities.value)
         timeMonth.value = setTimer(time, monthActivities.value)
         timeWeek.value = setTimer(time, weekActivities.value)
         timeLeft.value = targetHours.value * 3600 - timeMonth.value
-        totalOvertime.value = yearTargetToday - (totalWorkSeconds.value + timeMonth.value)
-
-        if (time.unix() % 60 === 0) {
-            todaysActivities.value = await getActivities(todayBegin, todayEnd)
-            monthActivities.value = await getActivities(month, todayEnd)
-            weekActivities.value = getWeekActivities(monthActivities.value)
-        }
-
-        if (todaysDate !== currentDate) {
-            currentDate = todaysDate
-            await refreshTargets()
-        }
-
-        statisticsTimeout.value = setTimeout(() => setStatus(resolve), 1000)
+        const eligibleActivities = monthActivities.value.filter((activity) =>
+            !dayjs(activity.begin).isBefore(workStart.value),
+        )
+        totalOvertime.value = targetThroughToday - (totalWorkSeconds.value + setTimer(time, eligibleActivities))
+        statisticsError.value = ''
+        statisticsReady.value = true
+    } catch (error) {
+        statisticsError.value = error instanceof Error ? error.message : String(error)
+    } finally {
+        if (!disposed) statisticsTimeout.value = setTimeout(status, statisticsError.value ? 60_000 : 1000)
     }
-    return new Promise((resolve) => setStatus(resolve))
 }
 
 onMounted(() => {
@@ -256,13 +190,16 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+    disposed = true
     clearTimeout(statisticsTimeout.value)
 })
 </script>
 <template>
     <div class="container">
         <div class="card">
-            <div class="table">
+            <p v-if="statisticsError" role="alert">{{ statisticsError }}</p>
+            <p v-else-if="!statisticsReady">Loading statistics…</p>
+            <div v-else class="table">
                 <div class="cell name-col"><strong>Today:</strong></div>
                 <div class="cell">{{ helper.secToHMS(timeToday) }}</div>
                 <div class="cell name-col"><strong>Week:</strong></div>
