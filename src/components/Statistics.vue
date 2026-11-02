@@ -28,44 +28,76 @@ const {
 const statisticsTimeout = ref()
 const yearBegin = ref()
 const yearEnd = ref()
+const workStart = ref()
 const totalWorkSeconds = ref(0)
 const totalTargetSeconds = ref(0)
 const totalTargetToday = ref(0)
+let yearTargetToday = 0
 
 async function getActivities(begin: string, end: string | null): Promise<any[]> {
-    let list = [] as any[]
-    let _end = ''
+    const list: any[] = []
+    const pageSize = 500
+    const params = new URLSearchParams({ begin, size: String(pageSize), order: 'ASC' })
 
     if (end) {
-        _end = `&end=${end}`
+        params.set('end', end)
     }
 
-    await fetch(`${user.value.api_url}/api/timesheets?begin=${begin}${_end}&size=20000&order=ASC`, {
-        method: 'GET',
-        headers: new Headers({ 'Content-Type': 'application/json', ...authHeader.value }),
-    })
-        .then((response) => response.json())
-        .then((data) => {
-            if (data && data.length > 0) {
-                list = data
-            } else {
-                list = []
+    try {
+        for (let page = 1; ; page++) {
+            params.set('page', String(page))
+            const response = await fetch(`${user.value.api_url}/api/timesheets?${params}`, {
+                method: 'GET',
+                headers: new Headers({ 'Content-Type': 'application/json', ...authHeader.value }),
+            })
+
+            // Without pagination headers, Kimai may return 404 after the last full page.
+            if (page > 1 && response.status === 404) {
+                break
             }
-        })
-        .catch(() => {
-            list = []
-        })
+
+            if (!response.ok) {
+                throw new Error(`Failed to load timesheets: ${response.status}`)
+            }
+
+            const data = await response.json()
+            if (!Array.isArray(data)) {
+                throw new Error('Invalid timesheets response')
+            }
+
+            list.push(...data)
+
+            const totalPages = Number(response.headers.get('X-Total-Pages'))
+            if (totalPages > 0 ? page >= totalPages : data.length < pageSize) {
+                break
+            }
+        }
+    } catch {
+        return []
+    }
 
     return list
 }
 
-async function getTotalHours(date: any): Promise<number> {
+function monthStartDay(date: any): number {
     /*
-        get total target working hour for given month
+        day of month from which the target hours should be counted,
+        prorating the month the user actually started working in
+    */
+    if (workStart.value && date.isSame(workStart.value, 'month')) {
+        return workStart.value.date()
+    }
+
+    return 1
+}
+
+async function getTotalHours(date: any, fromDay: number = 1): Promise<number> {
+    /*
+        get total target working hour for given month, starting at fromDay
     */
     const daysInMonth = date.daysInMonth()
     const dayHours = user.value.week_hours / user.value.work_days.length
-    let currentDay = 1
+    let currentDay = fromDay
     let weekHours = 0
     let totalHours = 0
 
@@ -145,40 +177,55 @@ async function getYearActivities() {
     }
 }
 
+async function refreshTargets() {
+    /*
+        (re-)compute target/overtime base values for the current day;
+        must be re-run whenever the day (and therefore possibly the month) changes
+    */
+    const time = dayjs()
+    yearBegin.value = dayjs(time.format('YYYY-01-01T00:00:00'))
+    yearEnd.value = dayjs(time.format('YYYY-MM-01T00:00:00'))
+    workStart.value = dayjs(`${user.value.work_start}T00:00:00`)
+
+    if (workStart.value.isAfter(yearBegin.value)) {
+        yearBegin.value = workStart.value
+    }
+
+    totalWorkSeconds.value = 0
+    totalTargetSeconds.value = 0
+    totalTargetToday.value = 0
+
+    targetHours.value = await getTotalHours(time, monthStartDay(time))
+    await getYearActivities()
+
+    let startDate = yearBegin.value.startOf('month')
+
+    while (yearEnd.value.isAfter(startDate)) {
+        totalTargetSeconds.value += (await getTotalHours(startDate, monthStartDay(startDate))) * 3600
+        startDate = startDate.add(1, 'month')
+    }
+
+    yearTargetToday = totalTargetSeconds.value + totalTargetToday.value * 3600
+}
+
 async function status() {
     let time = dayjs()
     let todayBegin = time.format('YYYY-MM-DDT00:00:00')
     let todayEnd = time.format('YYYY-MM-DDT23:59:59')
     let month = time.format('YYYY-MM-01T00:00:00')
-    yearBegin.value = dayjs(time.format('YYYY-01-01T00:00:00'))
-    yearEnd.value = dayjs(time.format('YYYY-MM-01T00:00:00'))
-
-    let workStart = dayjs(`${user.value.work_start}T00:00:00`)
-
-    if (workStart.isAfter(yearBegin.value)) {
-        yearBegin.value = workStart
-    }
-
-    let startDate = yearBegin.value
+    let currentDate = time.format('YYYY-MM-DD')
 
     todaysActivities.value = await getActivities(todayBegin, todayEnd)
     monthActivities.value = await getActivities(month, todayEnd)
     weekActivities.value = getWeekActivities(monthActivities.value)
-    targetHours.value = await getTotalHours(time)
-    await getYearActivities()
-
-    while (yearEnd.value.isAfter(startDate)) {
-        totalTargetSeconds.value += (await getTotalHours(startDate)) * 3600
-        startDate = startDate.add(1, 'month')
-    }
-
-    const yearTargetToday = totalTargetSeconds.value + totalTargetToday.value * 3600
+    await refreshTargets()
 
     async function setStatus(resolve: any) {
         /*
             recursive function as a endless loop
         */
         time = dayjs()
+        const todaysDate = time.format('YYYY-MM-DD')
         todayBegin = time.format('YYYY-MM-DDT00:00:00')
         todayEnd = time.format('YYYY-MM-DDT23:59:59')
         month = time.format('YYYY-MM-01T00:00:00')
@@ -192,6 +239,11 @@ async function status() {
             todaysActivities.value = await getActivities(todayBegin, todayEnd)
             monthActivities.value = await getActivities(month, todayEnd)
             weekActivities.value = getWeekActivities(monthActivities.value)
+        }
+
+        if (todaysDate !== currentDate) {
+            currentDate = todaysDate
+            await refreshTargets()
         }
 
         statisticsTimeout.value = setTimeout(() => setStatus(resolve), 1000)
