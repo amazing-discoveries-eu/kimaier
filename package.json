@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "test": "node tests/timesheets.test.mjs && node tests/control.test.mjs",
+        "test": "node tests/timesheets.test.mjs && node tests/control.test.mjs && node tests/updates.test.mjs",
         "build": "vue-tsc --noEmit && vite build",
         "preview": "vite preview",
         "tauri": "tauri"

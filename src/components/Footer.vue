@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
+import { useAppUpdates } from '../composables/useAppUpdates'
 
+const { update, phase } = useAppUpdates()
 const { user, currentPage, page, isRunning } = storeToRefs(useMainStore())
 </script>
 <template>
@@ -52,9 +54,18 @@ const { user, currentPage, page, isRunning } = storeToRefs(useMainStore())
                 </svg>
             </a>
         </div>
+        <a v-if="phase === 'available' && update" class="update-link" href="#" @click.prevent="currentPage = page.Settings">
+            Update {{ update.version }} available
+        </a>
     </div>
 </template>
 <style scoped>
+.update-link {
+    display: block;
+    font-size: 11px;
+    line-height: 16px;
+}
+
 .settings-button {
     display: inline-block;
     border-radius: 50%;

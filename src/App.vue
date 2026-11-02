@@ -6,11 +6,13 @@ import Statistics from './components/Statistics.vue'
 
 import { storeToRefs } from 'pinia'
 import { useMainStore } from './stores/main'
+import { useAppUpdates } from './composables/useAppUpdates'
 
 const { currentPage, user, page } = storeToRefs(useMainStore())
 const mainStore = useMainStore()
 
 onMounted(async () => {
+    if (import.meta.env.PROD) void useAppUpdates().checkForUpdates()
     await mainStore.getStore()
     if (
         !user.value ||

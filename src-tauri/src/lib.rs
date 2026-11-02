@@ -18,10 +18,16 @@ struct AppState {
     position: Mutex<PhysicalPosition<i32>>,
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.request_restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            restart_app,
             timesheet_cache::read_timesheet_cache,
             timesheet_cache::write_timesheet_cache,
         ])

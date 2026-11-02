@@ -79,7 +79,7 @@ test('Settings persist selected default IDs and names only on Save', async () =>
     const useBookingSelection = new Function('computed', 'ref', 'onBeforeUnmount', 'fetch', `${selectionCompiled}; return useBookingSelection;`)(computed, ref, () => {}, fetch)
     const settingsSource = readFileSync(new URL('../src/components/Settings.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
     const settingsCompiled = ts.transpile(settingsSource.replace(/^import .*$/gm, ''), { target: ts.ScriptTarget.ES2022 })
-    const settings = new Function('ref', 'storeToRefs', 'useMainStore', 'useBookingSelection', 'onMounted', 'setTimeout', `${settingsCompiled}; return {loadOptions,selectedProjectId,selectedActivityId,changeProject,saveSettings};`)(ref, () => state, () => ({ setStore: async () => { saved = { ...user.value } } }), useBookingSelection, () => {}, (fn) => fn())
+    const settings = new Function('ref', 'storeToRefs', 'useMainStore', 'useBookingSelection', 'onMounted', 'setTimeout', 'useAppUpdates', `${settingsCompiled}; return {loadOptions,selectedProjectId,selectedActivityId,changeProject,saveSettings};`)(ref, () => state, () => ({ setStore: async () => { saved = { ...user.value } } }), useBookingSelection, () => {}, (fn) => fn(), () => ({}))
     await settings.loadOptions()
     settings.selectedProjectId.value = 2
     settings.changeProject()

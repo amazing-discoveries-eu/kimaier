@@ -6,8 +6,9 @@ import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
 import { getHistoricalSeconds } from '../services/timesheets'
 import { useBookingSelection } from '../composables/useBookingSelection'
+import { useAppUpdates } from '../composables/useAppUpdates'
 
-const { authHeader, currentPage, page, user } = storeToRefs(useMainStore())
+const { authHeader, currentPage, page, user, isRunning } = storeToRefs(useMainStore())
 const mainStore = useMainStore()
 
 const {
@@ -15,6 +16,7 @@ const {
     validSelection, loadingOptions, optionsError, changeProject, loadOptions,
 } = useBookingSelection(() => user.value, user.value.project_id, user.value.activity_id)
 
+const { update, phase, updateError, progress, busy: updateBusy, checkForUpdates, installUpdate, restartAfterUpdate } = useAppUpdates()
 const appVersion = ref()
 const saveMsg = ref('')
 const rebuildingCache = ref(false)
@@ -150,7 +152,21 @@ onMounted(async () => {
             <p>Reload past months after editing or deleting older timesheets in Kimai.</p>
             <p v-if="cacheMessage" role="status">{{ cacheMessage }}</p>
 
-            <p>Kimaier v{{ appVersion }}</p>
+            <div class="updates">
+                <p>Kimaier v{{ appVersion }}</p>
+                <button type="button" :disabled="updateBusy || rebuildingCache || phase === 'installed'" @click="checkForUpdates">
+                    {{ phase === 'checking' ? 'Checking…' : 'Check for updates' }}
+                </button>
+                <p v-if="phase === 'current'" role="status">You are up to date.</p>
+                <p v-if="update && phase !== 'installed'">Version {{ update.version }} available.</p>
+                <button v-if="phase === 'available'" type="button" :disabled="isRunning === true || rebuildingCache" @click="installUpdate">
+                    Install and restart
+                </button>
+                <p v-if="phase === 'available' && isRunning === true">Stop the timer before installing.</p>
+                <p v-if="phase === 'installing'" role="status">Installing update{{ progress === null ? '…' : ` (${progress}%)…` }}</p>
+                <button v-if="phase === 'installed'" type="button" @click="restartAfterUpdate">Restart app</button>
+                <p v-if="updateError" role="alert">{{ updateError }}</p>
+            </div>
         </div>
 
         <p>{{ saveMsg }}</p>
@@ -232,6 +248,13 @@ select {
     margin: 0.3em auto 0;
     padding: 3px 6px;
     font-size: 12px;
+}
+
+.updates button {
+    width: auto;
+}
+.updates p {
+    overflow-wrap: anywhere;
 }
 
 .reload-choices,

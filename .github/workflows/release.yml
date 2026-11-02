@@ -9,7 +9,41 @@ permissions:
     contents: write
 
 jobs:
+    release-notes:
+        if: startsWith(github.ref, 'refs/tags/v')
+        runs-on: ubuntu-latest
+        outputs:
+            body: ${{ steps.build_changelog.outputs.changelog }}
+        steps:
+            - name: Checkout release history
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Build release notes
+              id: build_changelog
+              uses: mikepenz/release-changelog-builder-action@v3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  commitMode: true
+                  toTag: ${{ github.ref_name }}
+                  failOnError: true
+                  configurationJson: |
+                      {
+                          "categories": [
+                              {
+                                  "title": "## Changes",
+                                  "labels": []
+                              }
+                          ],
+                          "template": "#{{CHANGELOG}}",
+                          "pr_template": "- #{{TITLE}}",
+                          "empty_template": "No changes since the previous release."
+                      }
+
     release:
+        needs: release-notes
         # For manual runs, select an existing v* tag in the GitHub UI.
         if: startsWith(github.ref, 'refs/tags/v')
         strategy:
@@ -28,21 +62,6 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v6
-
-            - name: 'Build Changelog'
-              id: build_changelog
-              uses: mikepenz/release-changelog-builder-action@v3
-              with:
-                  commitMode: true
-                  configurationJson: |
-                      { "categories": [
-                              {
-                                  "title": "## 📦 Uncategorized",
-                                  "labels": []
-                              }
-                          ],
-                          "template": "#{{CHANGELOG}}\n\nUncategorized:\n#{{UNCATEGORIZED}}\n\nIgnored:\n#{{IGNORED}}\n\n#{{UNCATEGORIZED_COUNT}}\n#{{IGNORED_COUNT}}"
-                      }
 
             - name: Install dependencies (ubuntu only)
               if: matrix.platform == 'ubuntu-latest'
@@ -105,7 +124,7 @@ jobs:
                   tagName: ${{ github.ref_name }} # This only works if your workflow triggers on new tags.
                   releaseName: 'Kimaier v__VERSION__' # tauri-action replaces \_\_VERSION\_\_ with the app version.
                   releaseBody: |
-                      ${{ steps.build_changelog.outputs.changelog }}
+                      ${{ needs.release-notes.outputs.body }}
 
                       See the assets to download this version.
                   releaseDraft: true

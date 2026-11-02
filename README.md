@@ -3,6 +3,17 @@
 
 Simple desktop time tracking tool that uses [kimai](https://www.kimai.org/de/).
 
+Packaged builds check for updates at startup. When a newer version is available,
+the footer links to Settings, where **Check for updates** and **Install and restart**
+show status and errors. Stop the timer before installing. Checks also work manually
+in development, but automatic checks only run in production builds.
+
+The updater reads `latest.json` from the latest published GitHub release. The
+release workflow creates drafts: publish a completed release with its signed
+artifacts and manifest before clients can find it. The release version must be
+newer than the installed version. Installation and restart require a packaged app;
+the development server is not an update target.
+
 It is assumed that the projects and activities do not change often.
 
 Choose a project and activity directly in the Control view before starting a timer.
