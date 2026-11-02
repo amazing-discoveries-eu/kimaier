@@ -3,11 +3,12 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
 import Footer from './Footer.vue'
 import helper from '../helpers/helper'
+import { useBookingSelection } from '../composables/useBookingSelection'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -17,6 +18,23 @@ const { user, authHeader, isRunning, timeCurrent, runningActivity } = storeToRef
 const mainStore = useMainStore()
 
 const controlTimeout = ref()
+
+const {
+    selectedProjectId,
+    selectedActivityId,
+    projects,
+    selectedProject,
+    availableActivities,
+    validSelection,
+    loadingOptions,
+    optionsError,
+    changeProject,
+    loadOptions,
+} = useBookingSelection(() => user.value, user.value.project_id, user.value.activity_id)
+const changingState = ref(false)
+const controlError = ref('')
+let disposed = false
+const selectionDisabled = computed(() => isRunning.value !== false || loadingOptions.value || changingState.value)
 
 function setTimer(time: any) {
     if (runningActivity.value.length === 0 && timeCurrent.value !== 0) {
@@ -44,19 +62,35 @@ async function status() {
             await mainStore.getActiveActivity()
         }
 
+        if (disposed) return
         controlTimeout.value = setTimeout(() => setStatus(resolve), 1000)
     }
     return new Promise((resolve) => setStatus(resolve))
 }
 
 async function setState() {
+    if (changingState.value || isRunning.value === null) return
+    if (!isRunning.value && (!validSelection.value || loadingOptions.value)) return
+    changingState.value = true
+    controlError.value = ''
+    try {
+        await changeState()
+    } catch (error) {
+        controlError.value = error instanceof Error ? error.message : String(error)
+    } finally {
+        changingState.value = false
+    }
+}
+
+async function changeState() {
     if (isRunning.value) {
         for (const activity of runningActivity.value) {
             await fetch(`${user.value.api_url}/api/timesheets/${activity.id}/stop`, {
                 method: 'PATCH',
                 headers: new Headers({ 'Content-Type': 'application/json', ...authHeader.value }),
             }).then((response) => {
-                if (response.status === 200) {
+                if (!response.ok) throw new Error(`Failed to stop timesheet (HTTP ${response.status}).`)
+                if (response.ok) {
                     isRunning.value = false
                     runningActivity.value = []
                 }
@@ -67,15 +101,16 @@ async function setState() {
             method: 'POST',
             headers: new Headers({ 'Content-Type': 'application/json', ...authHeader.value }),
             body: JSON.stringify({
-                begin: dayjs(),
+                begin: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
                 end: '',
-                project: user.value.project_id,
-                activity: user.value.activity_id,
+                project: selectedProjectId.value,
+                activity: selectedActivityId.value,
                 description: '',
                 tags: '',
             }),
         }).then(async (response) => {
-            if (response.status === 200) {
+            if (!response.ok) throw new Error(`Failed to start timesheet (HTTP ${response.status}).`)
+            if (response.ok) {
                 isRunning.value = true
                 await mainStore.getActiveActivity()
             }
@@ -85,16 +120,23 @@ async function setState() {
 
 onMounted(() => {
     status()
+    loadOptions()
 })
 
 onBeforeUnmount(() => {
+    disposed = true
     clearTimeout(controlTimeout.value)
 })
 </script>
 <template>
     <div class="container">
         <div class="card">
-            <button id="control-button" type="button" @click="setState()">
+            <button
+                id="control-button"
+                type="button"
+                :disabled="changingState || isRunning === null || (!isRunning && (loadingOptions || !validSelection))"
+                @click="setState()"
+            >
                 <div v-if="isRunning === true" class="circle-pause">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
                         <!--! Font Awesome Free 6.2.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. -->
@@ -114,6 +156,41 @@ onBeforeUnmount(() => {
             </button>
 
             <div class="timer">{{ helper.secToHMS(timeCurrent) }}</div>
+            <div class="selection">
+                <select
+                    id="control-project"
+                    v-model="selectedProjectId"
+                    :disabled="selectionDisabled"
+                    @change="changeProject"
+                >
+                    <option :value="0" disabled>Select project</option>
+                    <option v-if="selectedProjectId && !selectedProject" :value="selectedProjectId" disabled>
+                        {{ user.project || 'Unavailable project' }}
+                    </option>
+                    <option v-for="project in projects" :key="project.id" :value="project.id">
+                        {{ project.parentTitle ? `${project.parentTitle} / ${project.name}` : project.name }}
+                    </option>
+                </select>
+                <select
+                    id="control-activity"
+                    v-model="selectedActivityId"
+                    :disabled="selectionDisabled || !selectedProject"
+                >
+                    <option :value="0" disabled>Select activity</option>
+                    <option v-if="selectedActivityId && !validSelection" :value="selectedActivityId" disabled>
+                        {{ user.activity || 'Unavailable activity' }}
+                    </option>
+                    <option v-for="activity in availableActivities" :key="activity.id" :value="activity.id">
+                        {{ activity.name }}
+                    </option>
+                </select>
+                <p v-if="loadingOptions">Loading projects and activities…</p>
+                <p v-else-if="selectedProject && !availableActivities.length">No activities available.</p>
+                <p v-if="optionsError || controlError" role="alert">{{ optionsError || controlError }}</p>
+                <button v-if="optionsError && !loadingOptions" type="button" @click="loadOptions">
+                    Reload choices
+                </button>
+            </div>
         </div>
 
         <Footer />
@@ -121,6 +198,32 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.selection {
+    width: 100%;
+    margin: 10px auto 0;
+    text-align: left;
+}
+.selection label {
+    display: block;
+    font-size: 12px;
+}
+.selection select {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+.selection p {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+button:disabled,
+select:disabled {
+    opacity: 0.55;
+}
 #control-button {
     width: 80vw;
     height: 80vw;

@@ -5,9 +5,15 @@ import { getVersion } from '@tauri-apps/api/app'
 import { storeToRefs } from 'pinia'
 import { useMainStore } from '../stores/main'
 import { getHistoricalSeconds } from '../services/timesheets'
+import { useBookingSelection } from '../composables/useBookingSelection'
 
-const { allActivities, authHeader, currentPage, page, user } = storeToRefs(useMainStore())
+const { authHeader, currentPage, page, user } = storeToRefs(useMainStore())
 const mainStore = useMainStore()
+
+const {
+    selectedProjectId, selectedActivityId, projects, selectedProject, availableActivities,
+    validSelection, loadingOptions, optionsError, changeProject, loadOptions,
+} = useBookingSelection(() => user.value, user.value.project_id, user.value.activity_id)
 
 const appVersion = ref()
 const saveMsg = ref('')
@@ -43,17 +49,14 @@ async function saveSettings() {
         Authorization: `Bearer ${user.value.api_token}`,
     }
 
-    await mainStore.setActivities()
-
-    for (const activity of allActivities.value) {
-        if (activity.parentTitle && activity.parentTitle.toLowerCase() === user.value.project.toLocaleLowerCase()) {
-            user.value.project_id = activity.project
-        }
-
-        if (activity.name.toLowerCase() === user.value.activity.toLocaleLowerCase()) {
-            user.value.activity_id = activity.id
-        }
+    if (!validSelection.value) {
+        saveMsg.value = 'Please load choices and select a default project and activity.'
+        return
     }
+    user.value.project_id = selectedProjectId.value
+    user.value.activity_id = selectedActivityId.value
+    user.value.project = selectedProject.value!.name
+    user.value.activity = availableActivities.value.find((activity) => activity.id === selectedActivityId.value)!.name
 
     await mainStore.setStore()
 
@@ -78,6 +81,7 @@ function activateDay(day: any) {
 }
 
 onMounted(async () => {
+    if (user.value.api_url && user.value.api_token) loadOptions()
     appVersion.value = await getVersion()
 
     for (const dayName of user.value.work_days) {
@@ -95,8 +99,24 @@ onMounted(async () => {
             <form @submit.prevent="saveSettings()" @reset="currentPage = page.Control">
                 <input v-model="user.api_token" type="password" placeholder="API Token" required />
                 <input v-model="user.api_url" placeholder="API URL" required />
-                <input v-model="user.project" placeholder="Project" required />
-                <input v-model="user.activity" placeholder="Activity" required />
+                <label for="default-project">Default project</label>
+                <select id="default-project" v-model="selectedProjectId" :disabled="loadingOptions || rebuildingCache" required @change="changeProject">
+                    <option :value="0" disabled>Select project</option>
+                    <option v-if="selectedProjectId && !selectedProject" :value="selectedProjectId" disabled>{{ user.project || 'Unavailable project' }}</option>
+                    <option v-for="project in projects" :key="project.id" :value="project.id">
+                        {{ project.parentTitle ? `${project.parentTitle} / ${project.name}` : project.name }}
+                    </option>
+                </select>
+                <label for="default-activity">Default activity</label>
+                <select id="default-activity" v-model="selectedActivityId" :disabled="loadingOptions || rebuildingCache || !selectedProject" required>
+                    <option :value="0" disabled>Select activity</option>
+                    <option v-if="selectedActivityId && !validSelection" :value="selectedActivityId" disabled>{{ user.activity || 'Unavailable activity' }}</option>
+                    <option v-for="activity in availableActivities" :key="activity.id" :value="activity.id">{{ activity.name }}</option>
+                </select>
+                <button class="reload-choices" type="button" :disabled="loadingOptions || rebuildingCache || !user.api_url || !user.api_token" @click="loadOptions">
+                    {{ loadingOptions ? 'Loading…' : 'Load choices' }}
+                </button>
+                <p v-if="optionsError" role="alert">{{ optionsError }}</p>
                 <input v-model="user.week_hours" placeholder="Hours per Week" type="number" tep="0.1" required />
                 <label for="work-start">Work start</label>
                 <input id="work-start" v-model="user.work_start" type="date" required />
@@ -118,7 +138,7 @@ onMounted(async () => {
 
                 <div class="btn-group">
                     <button type="reset" :disabled="rebuildingCache">Cancel</button>
-                    <button type="submit" :disabled="rebuildingCache">Save</button>
+                    <button type="submit" :disabled="rebuildingCache || loadingOptions || !validSelection">Save</button>
                 </div>
             </form>
 
@@ -205,6 +225,16 @@ input::-webkit-inner-spin-button {
     border-bottom-right-radius: 4px;
 }
 
+select {
+    display: block;
+    box-sizing: border-box;
+    width: 70vw;
+    margin: 0.3em auto 0;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.reload-choices,
 .rebuild-cache {
     width: auto;
 }

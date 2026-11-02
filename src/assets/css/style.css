@@ -1,4 +1,7 @@
 :root {
+    color-scheme: light;
+    --field-color: #0f0f0f;
+    --field-background: #ffffff;
     font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 24px;
@@ -75,6 +78,13 @@ button {
     box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
 }
 
+select,
+select option,
+select optgroup {
+    color: var(--field-color);
+    background-color: var(--field-background);
+}
+
 button {
     cursor: pointer;
 }
@@ -96,6 +106,9 @@ button {
 
 @media (prefers-color-scheme: dark) {
     :root {
+        color-scheme: dark;
+        --field-color: #ffffff;
+        --field-background: #1c1c1c;
         color: #f6f6f6;
         background-color: #2f2f2f;
     }
@@ -104,7 +117,6 @@ button {
         color: #24c8db;
     }
 
-    select,
     input,
     button {
         color: #ffffff;

@@ -5,6 +5,13 @@ Simple desktop time tracking tool that uses [kimai](https://www.kimai.org/de/).
 
 It is assumed that the projects and activities do not change often.
 
+Choose a project and activity directly in the Control view before starting a timer.
+The compact dropdowns below the timer include the project's activities and
+permitted global activities. Control selections are temporary and reset to the
+saved defaults when the view is reopened. Save default project and activity
+selections using the dropdowns in Settings. Both Control dropdowns are disabled
+while a timer is running.
+
 Overtime is calculated from the optional **Count from** date in Settings. When
 empty, the configured **Work start** date is used, including previous years.
 The total duration of completed months is cached locally in `timesheets.sqlite` in

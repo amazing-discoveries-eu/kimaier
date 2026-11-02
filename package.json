@@ -1,11 +1,11 @@
 {
     "name": "kimaier",
     "private": true,
-    "version": "0.13.0",
+    "version": "0.14.0",
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "test": "node tests/timesheets.test.mjs",
+        "test": "node tests/timesheets.test.mjs && node tests/control.test.mjs",
         "build": "vue-tsc --noEmit && vite build",
         "preview": "vite preview",
         "tauri": "tauri"

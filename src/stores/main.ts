@@ -92,11 +92,8 @@ export const useMainStore = defineStore('main', {
         },
 
         async setStore() {
-            await this.store.set('user', this.user).then(() => {
-                setTimeout(() => {
-                    this.store.save()
-                }, 100)
-            })
+            await this.store.set('user', this.user)
+            await this.store.save()
         },
 
         async getActiveActivity() {
