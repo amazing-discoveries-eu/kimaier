@@ -94,3 +94,57 @@ test('Settings persist selected default IDs and names only on Save', async () =>
     assert.equal(saved.activity, 'Local two')
     assert.equal(currentPage.value, 0)
 })
+
+function loadingSetup(fetch, connection = () => ({ api_url: 'https://kimai.test', api_token: 'test' })) {
+    let deadline
+    let unmount
+    const useBookingSelection = new Function('computed', 'ref', 'onBeforeUnmount', 'fetch', 'setTimeout', 'clearTimeout', `${selectionCompiled}; return useBookingSelection;`)(
+        computed, ref, fn => { unmount = fn }, fetch, fn => { deadline = fn; return 1 }, () => {},
+    )
+    return { ...useBookingSelection(connection, 1, 10), expire: () => deadline(), unmount: () => unmount() }
+}
+
+test('loading ends at the deadline even if fetch ignores the abort signal', async () => {
+    const signals = []
+    const selection = loadingSetup((_url, options) => {
+        signals.push(options.signal)
+        return new Promise(() => {})
+    })
+    const loading = selection.loadOptions()
+    assert.equal(selection.loadingOptions.value, true)
+    selection.expire()
+    await loading
+    assert.equal(selection.loadingOptions.value, false)
+    assert.match(selection.optionsError.value, /30 seconds/)
+    assert.ok(signals.every(signal => signal.aborted))
+})
+
+test('a stuck response body also times out', async () => {
+    const selection = loadingSetup(async () => ({ ok: true, json: () => new Promise(() => {}) }))
+    const loading = selection.loadOptions()
+    await Promise.resolve()
+    selection.expire()
+    await loading
+    assert.equal(selection.loadingOptions.value, false)
+    assert.match(selection.optionsError.value, /30 seconds/)
+})
+
+test('missing settings and connection errors never leave loading enabled', async () => {
+    const missing = loadingSetup(() => { throw new Error('Unexpected request') }, () => ({ api_url: '', api_token: '' }))
+    await missing.loadOptions()
+    assert.equal(missing.loadingOptions.value, false)
+    assert.match(missing.optionsError.value, /configure/)
+    const failing = loadingSetup(async () => { throw new Error('Network unavailable') })
+    await failing.loadOptions()
+    assert.equal(failing.loadingOptions.value, false)
+    assert.match(failing.optionsError.value, /Network unavailable/)
+})
+
+test('unmount cancels outstanding requests without publishing an error', async () => {
+    const selection = loadingSetup(() => new Promise(() => {}))
+    const loading = selection.loadOptions()
+    selection.unmount()
+    await loading
+    assert.equal(selection.loadingOptions.value, false)
+    assert.equal(selection.optionsError.value, '')
+})
