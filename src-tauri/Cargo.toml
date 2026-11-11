@@ -1,6 +1,6 @@
 [package]
 name = "kimaier"
-version = "0.14.1"
+version = "0.14.2"
 description = "Simple desktop time tracker, based on kimai backend"
 authors = ["Jonathan Bäcker <jonbae77@gmail.com>"]
 license = ""
@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+rusqlite = { version = "0.42", features = ["bundled"] }
 
 [features]
 # by default Tauri runs in production mode
