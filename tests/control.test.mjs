@@ -22,7 +22,7 @@ function setup() {
         return new Response(JSON.stringify(data))
     }
     const useBookingSelection = new Function('computed', 'ref', 'onBeforeUnmount', 'fetch', `${selectionCompiled}; return useBookingSelection;`)(computed, ref, () => {}, fetch)
-    const component = new Function('dayjs', 'ref', 'computed', 'storeToRefs', 'useMainStore', 'onMounted', 'onBeforeUnmount', 'fetch', 'useBookingSelection', `${compiled}; return {loadOptions,changeProject,setState,availableActivities,validSelection,selectedProjectId,selectedActivityId};`)(dayjs, ref, computed, () => state, () => mainStore, () => {}, () => {}, fetch, useBookingSelection)
+    const component = new Function('dayjs', 'ref', 'computed', 'storeToRefs', 'useMainStore', 'onMounted', 'onBeforeUnmount', 'fetch', 'useBookingSelection', `${compiled}; return {setTimer,loadOptions,changeProject,setState,availableActivities,validSelection,selectedProjectId,selectedActivityId};`)(dayjs, ref, computed, () => state, () => mainStore, () => {}, () => {}, fetch, useBookingSelection)
     return { ...component, state, requests, get saves() { return saves } }
 }
 test('filters activities by project and global activity support', async () => {
@@ -147,4 +147,22 @@ test('unmount cancels outstanding requests without publishing an error', async (
     await loading
     assert.equal(selection.loadingOptions.value, false)
     assert.equal(selection.optionsError.value, '')
+})
+
+test('a running Kimai timer continues from its original start after an app restart', () => {
+    const activity = { id: 42, begin: dayjs().subtract(10, 'minute').toISOString() }
+    const before = setup()
+    before.state.runningActivity.value = [activity]
+    before.state.isRunning.value = true
+    const now = dayjs()
+    before.setTimer(now)
+
+    // Startup reads the same active timesheet from Kimai after the update restart.
+    const after = setup()
+    after.state.runningActivity.value = [activity]
+    after.state.isRunning.value = true
+    after.setTimer(now.add(5, 'second'))
+    assert.equal(after.state.timeCurrent.value, before.state.timeCurrent.value + 5)
+    assert.equal(after.state.isRunning.value, true)
+    assert.deepEqual(after.requests, [])
 })
